@@ -2,9 +2,59 @@
 
 Command-line tools and agent skills I use for macOS and iOS development.
 
-| Tool | What it does |
-|---|---|
-| [`togif`](#togif) | Converts screen recordings to looping GIFs, or small MP4s, without leaving your Mac |
+| Item | Kind | What it does |
+|---|---|---|
+| [`togif`](#togif) | Tool | Converts screen recordings to looping GIFs or small MP4s, without leaving your Mac |
+| [`fastlane-changelog`](#fastlane-changelog) | Skill | Writes TestFlight "What to Test" notes from git commits |
+| [`pdf2md`](#pdf2md) | Skill | Converts PDFs to Markdown before an agent reads them |
+| [`md2html`](#md2html) | Command | Converts a Markdown file to a styled standalone HTML page |
+
+The tool is a plain shell script. The skills and the command are for
+[Claude Code](https://claude.com/claude-code).
+
+## Install
+
+Clone the repo once:
+
+```sh
+git clone https://github.com/KenLaam/Kommands.git
+cd Kommands
+```
+
+Then run either installer, or both. They are independent.
+
+```sh
+./tools/togif/install.sh      # the togif command and its Finder Quick Action
+./install.sh                  # every skill and command, into ~/.claude
+```
+
+To install a single skill or command, name it. To remove what an installer
+created, pass `--uninstall`:
+
+```sh
+./install.sh pdf2md                 # only pdf2md
+./install.sh pdf2md md2html         # several items
+./install.sh --uninstall            # remove every link
+./install.sh --uninstall pdf2md     # remove one
+./tools/togif/install.sh --uninstall
+```
+
+Both installers create symlinks into the clone, so:
+
+- **Keep the clone where it is.** If you move it, run the installers again
+  from the new location with `--force`.
+- **`git pull` updates everything.** The one exception is the Finder Quick
+  Action, which is a copy: re-run `./tools/togif/install.sh` after a pull that
+  changes it.
+
+Neither installer overwrites a file it did not create. If something is already
+at a target path, the installer reports it and leaves it alone; `--force` moves the
+existing file to a backup first (`~/.claude/backups/kommands-<timestamp>/` for
+skills and commands, `~/.local/bin/togif.backup-<timestamp>` for `togif`).
+Running an installer twice is safe.
+
+`./install.sh` uses `$CLAUDE_CONFIG_DIR` when it is set and `~/.claude`
+otherwise. Start a new Claude Code session after installing.
 
 ## togif
 
@@ -33,13 +83,18 @@ recording.gif: 9.6 MB, 480 px wide (stepped down from 592 px to fit 10 MB)
 ### Install
 
 ```sh
-git clone https://github.com/KenLaam/Kommands.git
-cd Kommands
-mkdir -p ~/.local/bin
-ln -s "$PWD/bin/togif" ~/.local/bin/togif
+./tools/togif/install.sh
 ```
 
-Make sure `~/.local/bin` is on your `PATH`.
+This links `togif` into `~/.local/bin` and copies the Finder Quick Action into
+`~/Library/Services`. Make sure `~/.local/bin` is on your `PATH`; the installer
+tells you when it is not.
+
+| Option | Meaning |
+|---|---|
+| `--no-quick-action` | Link the command only |
+| `--force` | Replace a `~/.local/bin/togif` the installer did not create, keeping the old one as `togif.backup-<timestamp>` |
+| `--uninstall` | Remove the command link and the Quick Action |
 
 ### Options
 
@@ -68,17 +123,104 @@ Make sure `~/.local/bin` is on your `PATH`.
 
 ### Finder Quick Action
 
-To convert from Finder's right-click menu, install the script as above, then:
+The installer adds a Quick Action to Finder's right-click menu. Select one or
+more videos, right-click, and choose Quick Actions > Convert to GIF. If the
+item is missing, enable it under Quick Actions > Customize….
+
+The Quick Action calls `~/.local/bin/togif`, which is a link into your clone.
+macOS guards Desktop, Documents and Downloads, so a clone inside one of them
+can trigger privacy prompts when the Quick Action runs. Clone somewhere else,
+such as `~/Developer`.
+
+## fastlane-changelog
+
+A skill that writes `fastlane/changelog`, the file fastlane sends to TestFlight
+as the "What to Test" notes. It collects the commits since the last build,
+drops what testers do not care about (merges, build and version bumps, docs,
+tests, dependency chores), and rewrites the rest as plain sentences, features
+first. It does not run the deploy, bump the build number or upload anything.
+
+### Requirements
+
+The skill expects an iOS project that:
+
+- uses git with conventional commits (`feat`, `fix`, `refactor` and so on)
+- has a `fastlane/` directory at the repo root
+- reads TestFlight release notes from `fastlane/changelog`
+- marks each deploy with a "Bump build to N" commit
+
+When no "Bump build to N" commit exists yet, the last 30 commits are used.
+
+### Use
 
 ```sh
-cp -R "quick-actions/Convert to GIF.workflow" ~/Library/Services/
-/System/Library/CoreServices/pbs -update
+./install.sh fastlane-changelog
 ```
 
-Select one or more videos, right-click, and choose Quick Actions > Convert to
-GIF. If the item is missing, enable it under Quick Actions > Customize…. The
-Quick Action calls `~/.local/bin/togif`, so the script must be installed at
-that path.
+In Claude Code, ask for it before a deploy, for example "update the changelog
+for the deploy" or "write the what to test notes for this build". The skill
+shows the final list and leaves the deploy to you.
+
+The notes are written in English by default. To use another language, say so
+in the project's instructions (`CLAUDE.md`), for example:
+
+```md
+Write TestFlight release notes in French.
+```
+
+## pdf2md
+
+A skill that converts a PDF to Markdown with
+[markitdown](https://github.com/microsoft/markitdown) before the agent reads
+it. Markdown costs far fewer tokens than reading the PDF as images, has no
+page limit and can be searched. A wrapper script checks the result, because
+`markitdown` reports success even when it extracted nothing.
+
+### Requirements
+
+- Python 3.9 or later
+- markitdown with its PDF extra, on your `PATH` (markitdown itself needs
+  Python 3.10 or later):
+
+```sh
+pip install 'markitdown[pdf]'
+```
+
+### Use
+
+```sh
+./install.sh pdf2md
+```
+
+The skill triggers by itself whenever a PDF is about to be read. Good to know:
+
+- **Cache.** Converted files are kept in `~/.claude/cache/markitdown/` and
+  reused until the PDF changes. The cache can hold whatever your PDFs hold, so
+  clear it if that matters to you.
+- **Scanned PDFs.** A PDF with no text layer cannot be converted. The skill
+  detects this and reads the PDF directly instead.
+- **Limits.** Converted text has no page numbers, complex tables can lose
+  their structure, and images and charts are dropped.
+
+## md2html
+
+A slash command that turns a Markdown file into a single self-contained HTML
+page: automatic dark and light theme, callouts, code blocks with copy buttons,
+and a table of contents that follows the scroll position.
+
+```sh
+./install.sh md2html
+```
+
+Then, in Claude Code:
+
+```
+/md2html <input.md> [output.html]
+```
+
+Without an output path, the page is written beside the source with `.md`
+replaced by `.html`. The agent does the conversion, not a script, so the
+output can vary slightly between runs.
 
 ## Licence
 
