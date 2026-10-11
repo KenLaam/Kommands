@@ -48,7 +48,7 @@ list_items() {
 }
 
 item_exists() {
-  list_items | grep -q "^$1 "
+  list_items | cut -d' ' -f1 | grep -qxF -- "$1"
 }
 
 describe() {
